@@ -1,4 +1,5 @@
 <img width="1254" height="1254" alt="image" src="https://github.com/user-attachments/assets/2ee6f7bf-8b2a-421b-b977-1efc0ddb1ede" />
+
 # MDE Threat Hunting Queries
 
 ## Advanced KQL Queries for Microsoft Defender for Endpoint
