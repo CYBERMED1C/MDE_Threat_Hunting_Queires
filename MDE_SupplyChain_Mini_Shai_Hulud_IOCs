@@ -14,7 +14,7 @@
 // IOC files include reported JavaScript and Python payload artifacts.
 // IOC strings include unique campaign markers, token-monitoring artifacts, and repository dump markers.
 // IOC package versions include exact affected npm and PyPI versions from reporting.
-let Lookback = 14d;
+let Lookback = 30d;
 let IocDomains = dynamic([
     "filev2.getsession.org",
     "api.masscan.cloud",
