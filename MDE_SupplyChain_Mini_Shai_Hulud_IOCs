@@ -1,0 +1,205 @@
+// Query Name: MDE_SupplyChain_Mini_Shai_Hulud_IOC_Only
+// Source: https://thehackernews.com/2026/05/mini-shai-hulud-worm-compromises.html
+// Purpose: Hunt for Mini Shai-Hulud / TeamPCP activity using only reported IOCs and unique campaign artifacts.
+// Source Type: Public reporting / TLP:CLEAR research
+// Idea Came From: Reporting describing compromised npm/PyPI packages, malicious payload files, credential theft, GitHub token abuse, and known exfiltration infrastructure.
+// Intended Use: Defensive cyber operations, SOC hunting, incident response, developer endpoint triage, CI/CD runner review.
+// Notes: This query is IOC-focused to reduce false positives.
+// Notes: This query intentionally avoids broad matches for common admin, developer, Linux, GitHub, npm, Python, VS Code, or CI/CD activity.
+// ==============================
+// IOCs
+// ==============================
+// IOC domains include reported exfiltration, upload, and typosquat infrastructure.
+// IOC IP includes reported remote credential-stealer infrastructure.
+// IOC files include reported JavaScript and Python payload artifacts.
+// IOC strings include unique campaign markers, token-monitoring artifacts, and repository dump markers.
+// IOC package versions include exact affected npm and PyPI versions from reporting.
+let Lookback = 14d;
+let IocDomains = dynamic([
+    "filev2.getsession.org",
+    "api.masscan.cloud",
+    "git-tanstack.com"
+]);
+let IocIPs = dynamic([
+    "83.142.209.194"
+]);
+let IocFiles = dynamic([
+    "router_init.js",
+    "setup.mjs",
+    "transformers.pyz"
+]);
+let IocStrings = dynamic([
+    "gh-token-monitor",
+    "claude@users.noreply.github.com",
+    "Shai-Hulud: Here We Go Again",
+    "IfYouRevokeThisTokenItWillWipeTheComputerOfTheOwner",
+    "bypass_2fa"
+]);
+let IocPackages = dynamic([
+    "guardrails-ai@0.10.1",
+    "guardrails-ai==0.10.1",
+    "guardrails-ai 0.10.1",
+    "mistralai@2.4.6",
+    "mistralai==2.4.6",
+    "mistralai 2.4.6",
+    "@opensearch-project/opensearch@3.5.3",
+    "@opensearch-project/opensearch@3.6.2",
+    "@opensearch-project/opensearch@3.7.0",
+    "@opensearch-project/opensearch@3.8.0",
+    "@squawk/mcp@0.9.5",
+    "@squawk/weather@0.5.10",
+    "@squawk/flightplan@0.5.6",
+    "@tallyui/connector-medusa@1.0.1",
+    "@tallyui/connector-medusa@1.0.2",
+    "@tallyui/connector-medusa@1.0.3",
+    "@tallyui/connector-vendure@1.0.1",
+    "@tallyui/connector-vendure@1.0.2",
+    "@tallyui/connector-vendure@1.0.3"
+]);
+// ==============================
+// Exploit Notes
+// ==============================
+// Reported activity involved compromised npm and PyPI packages.
+// Reported activity included the malicious JavaScript file router_init.js.
+// Reported activity included package.json execution of node setup.mjs.
+// Reported activity included the Python artifact transformers.pyz.
+// Reported activity included credential theft and exfiltration to filev2.getsession.org.
+// Reported activity included secret upload to api.masscan.cloud.
+// Reported activity included a redundant exfiltration channel using git-tanstack.com.
+// Reported activity included a credential stealer download from 83.142.209.194.
+// Reported activity included stolen credential repositories containing Shai-Hulud: Here We Go Again.
+// Reported activity included GitHub commits using claude@users.noreply.github.com.
+// Reported activity included gh-token-monitor.
+// ==============================
+// Other Notes
+// ==============================
+// This query only searches for reported IOCs and unique campaign artifacts.
+// This query does not hunt for common shell commands, generic package-manager execution, generic GitHub API use, or generic developer-tool behavior.
+// A result from this query should be treated as higher confidence than broad behavior-based hunting.
+// ==============================
+// Detection Logic: Process IOC Matches
+// ==============================
+// Searches process command lines for reported domains, IPs, files, unique strings, and exact package versions.
+let ProcessIocHits =
+DeviceProcessEvents
+| where Timestamp >= ago(Lookback)
+| where ProcessCommandLine has_any (IocDomains)
+    or ProcessCommandLine has_any (IocIPs)
+    or ProcessCommandLine has_any (IocFiles)
+    or ProcessCommandLine has_any (IocStrings)
+    or ProcessCommandLine has_any (IocPackages)
+| extend SourceTable = "DeviceProcessEvents"
+| extend Signal = "Process command line contains reported Mini Shai-Hulud IOC"
+| extend MatchedEvidence = ProcessCommandLine
+| extend AccountUsed = tostring(column_ifexists("AccountName", ""))
+| extend RemoteUrl = ""
+| extend RemoteIP = ""
+| extend ReportIdText = tostring(column_ifexists("ReportId", ""))
+| project Timestamp, DeviceName, DeviceId, AccountUsed, SourceTable, Signal, MatchedEvidence, FileName, FolderPath, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine, RemoteUrl, RemoteIP, SHA256, ReportIdText;
+// ==============================
+// Detection Logic: Network IOC Matches
+// ==============================
+// Searches network telemetry for reported campaign domains and IP address only.
+let NetworkIocHits =
+DeviceNetworkEvents
+| where Timestamp >= ago(Lookback)
+| where RemoteUrl has_any (IocDomains)
+    or RemoteIP in (IocIPs)
+| extend SourceTable = "DeviceNetworkEvents"
+| extend Signal = "Network connection to reported Mini Shai-Hulud infrastructure"
+| extend MatchedEvidence = strcat("RemoteUrl=", tostring(RemoteUrl), " RemoteIP=", tostring(RemoteIP), " InitiatingCommand=", tostring(InitiatingProcessCommandLine))
+| extend AccountUsed = tostring(column_ifexists("InitiatingProcessAccountName", ""))
+| extend FileName = tostring(column_ifexists("InitiatingProcessFileName", ""))
+| extend FolderPath = ""
+| extend ProcessCommandLine = ""
+| extend SHA256 = ""
+| extend ReportIdText = tostring(column_ifexists("ReportId", ""))
+| project Timestamp, DeviceName, DeviceId, AccountUsed, SourceTable, Signal, MatchedEvidence, FileName, FolderPath, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine, RemoteUrl, RemoteIP, SHA256, ReportIdText;
+// ==============================
+// Detection Logic: File IOC Matches
+// ==============================
+// Searches file telemetry for reported payload names and unique campaign strings in file paths or initiating command lines.
+let FileIocHits =
+DeviceFileEvents
+| where Timestamp >= ago(Lookback)
+| where FileName in~ (IocFiles)
+    or FolderPath has_any (IocFiles)
+    or FolderPath has_any (IocDomains)
+    or FolderPath has_any (IocStrings)
+    or FolderPath has_any (IocPackages)
+    or InitiatingProcessCommandLine has_any (IocDomains)
+    or InitiatingProcessCommandLine has_any (IocIPs)
+    or InitiatingProcessCommandLine has_any (IocFiles)
+    or InitiatingProcessCommandLine has_any (IocStrings)
+    or InitiatingProcessCommandLine has_any (IocPackages)
+| extend SourceTable = "DeviceFileEvents"
+| extend Signal = "File activity contains reported Mini Shai-Hulud IOC"
+| extend MatchedEvidence = strcat("Action=", tostring(ActionType), " FilePath=", tostring(FolderPath), " InitiatingCommand=", tostring(InitiatingProcessCommandLine))
+| extend AccountUsed = tostring(column_ifexists("InitiatingProcessAccountName", ""))
+| extend RemoteUrl = ""
+| extend RemoteIP = ""
+| extend ProcessCommandLine = ""
+| extend ReportIdText = tostring(column_ifexists("ReportId", ""))
+| project Timestamp, DeviceName, DeviceId, AccountUsed, SourceTable, Signal, MatchedEvidence, FileName, FolderPath, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine, RemoteUrl, RemoteIP, SHA256, ReportIdText;
+// ==============================
+// Detection Logic: Registry IOC Matches
+// ==============================
+// Searches registry telemetry for reported payload names and unique campaign strings.
+// This can help catch persistence or configuration references without matching generic developer-tool locations.
+let RegistryIocHits =
+DeviceRegistryEvents
+| where Timestamp >= ago(Lookback)
+| where RegistryKey has_any (IocDomains)
+    or RegistryKey has_any (IocFiles)
+    or RegistryKey has_any (IocStrings)
+    or RegistryValueName has_any (IocDomains)
+    or RegistryValueName has_any (IocFiles)
+    or RegistryValueName has_any (IocStrings)
+    or RegistryValueData has_any (IocDomains)
+    or RegistryValueData has_any (IocIPs)
+    or RegistryValueData has_any (IocFiles)
+    or RegistryValueData has_any (IocStrings)
+    or RegistryValueData has_any (IocPackages)
+| extend SourceTable = "DeviceRegistryEvents"
+| extend Signal = "Registry activity contains reported Mini Shai-Hulud IOC"
+| extend MatchedEvidence = strcat("RegistryKey=", tostring(RegistryKey), " RegistryValueName=", tostring(RegistryValueName), " RegistryValueData=", tostring(RegistryValueData))
+| extend AccountUsed = tostring(column_ifexists("InitiatingProcessAccountName", ""))
+| extend FileName = tostring(column_ifexists("InitiatingProcessFileName", ""))
+| extend FolderPath = ""
+| extend ProcessCommandLine = ""
+| extend RemoteUrl = ""
+| extend RemoteIP = ""
+| extend SHA256 = ""
+| extend ReportIdText = tostring(column_ifexists("ReportId", ""))
+| project Timestamp, DeviceName, DeviceId, AccountUsed, SourceTable, Signal, MatchedEvidence, FileName, FolderPath, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine, RemoteUrl, RemoteIP, SHA256, ReportIdText;
+// ==============================
+// Results
+// ==============================
+// Results are grouped by device, account, source table, and signal.
+// Review MatchedEvidence first.
+// Domain and IP hits should be treated as the highest-confidence results.
+union isfuzzy=true ProcessIocHits, NetworkIocHits, FileIocHits, RegistryIocHits
+| extend SeverityHint = case(
+    MatchedEvidence has_any (IocDomains), "High - reported campaign domain",
+    MatchedEvidence has_any (IocIPs), "High - reported campaign IP",
+    MatchedEvidence has_any (IocFiles), "High - reported campaign file",
+    MatchedEvidence has_any (IocStrings), "High - unique campaign string",
+    MatchedEvidence has_any (IocPackages), "Medium/High - exact affected package version",
+    "Review"
+)
+| summarize FirstSeen = min(Timestamp), LastSeen = max(Timestamp), SeverityHints = make_set(SeverityHint, 10), SourceTables = make_set(SourceTable, 10), Signals = make_set(Signal, 10), Evidence = make_set(MatchedEvidence, 25), Files = make_set(FileName, 25), FolderPaths = make_set(FolderPath, 25), ProcessCommands = make_set(ProcessCommandLine, 25), InitiatingProcesses = make_set(InitiatingProcessFileName, 25), InitiatingCommands = make_set(InitiatingProcessCommandLine, 25), RemoteUrls = make_set(RemoteUrl, 25), RemoteIPs = make_set(RemoteIP, 25), SHA256s = make_set(SHA256, 25), ReportIds = make_set(ReportIdText, 25) by DeviceName, DeviceId, AccountUsed
+| order by LastSeen desc
+// ==============================
+// False Positive Notes
+// ==============================
+// Expected false positives should be limited because this query avoids broad behavior.
+// Possible false positives include security research, sandbox testing, IOC documentation, malware-analysis tooling, or internal detection content that stores these IOCs locally.
+// If exact package-version hits are noisy, remove IocPackages from ProcessIocHits and FileIocHits.
+// If registry hits are noisy, comment out RegistryIocHits from the final union.
+// ==============================
+// Response Notes
+// ==============================
+// If this query returns domain, IP, file, or unique-string hits, treat the result as high priority.
+// Preserve evidence before rotating or revoking developer, GitHub, npm, PyPI, cloud, or CI/CD credentials.
+// Review affected machines for package installs, credential exposure, source-code repository access, and developer-tool persistence.
+// Review package-lock.json, npm-shrinkwrap.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, setup.py, and package.json for exact affected versions.
